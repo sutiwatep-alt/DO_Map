@@ -1,5 +1,5 @@
 /* Service Worker — แคชแอปไว้ให้เปิดออฟไลน์ + แคชภาพแผนที่โซนที่เคยดู */
-const CACHE = 'do-monitor-v8';
+const CACHE = 'do-monitor-v9';
 const SHELL = [
   './', './index.html', './app.js', './config.js', './manifest.json', './icon.svg'
 ];
@@ -28,7 +28,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // ✅ ทุกอย่างที่เหลือ (แอป, ไลบรารี CDN, ฟอนต์, ภาพแผนที่) = cache-first
+  // ไฟล์แอป (โดเมนเดียวกัน) = network-first → ออนไลน์ได้ของใหม่เสมอ, ออฟไลน์ค่อยใช้แคช
+  if (url.origin === self.location.origin) {
+    e.respondWith(
+      fetch(req).then((res) => {
+        if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}); }
+        return res;
+      }).catch(() => caches.match(req).then((c) => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // ไลบรารี CDN / ฟอนต์ / ภาพแผนที่ (ข้ามโดเมน) = cache-first (เร็ว + ใช้ออฟไลน์ได้)
   e.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
