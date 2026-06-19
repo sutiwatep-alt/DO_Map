@@ -319,18 +319,73 @@ $('#useGps').addEventListener('click',()=>{
   },e=>{ alert('หาตำแหน่งไม่ได้: '+e.message); $('#useGps').textContent='📍 ใช้ GPS ตอนนี้'; },{enableHighAccuracy:true,timeout:10000});
 });
 
-/* ---------- ปักจุดบนแผนที่ ---------- */
-let pickMode=false, pickMarker=null;
-$('#pickMap').addEventListener('click',()=>{ pickMode=true; closeModal(); $('#pickBanner').style.display='flex'; });
-$('#pickCancel').addEventListener('click',()=>{ pickMode=false; $('#pickBanner').style.display='none'; overlay.classList.add('show'); });
-map.on('click',e=>{
-  if(!pickMode) return;
-  pickMode=false; $('#pickBanner').style.display='none';
-  $('#f_lat').value=e.latlng.lat.toFixed(6); $('#f_lng').value=e.latlng.lng.toFixed(6);
-  if(pickMarker) map.removeLayer(pickMarker);
-  pickMarker=L.marker(e.latlng,{opacity:.7}).addTo(map);
-  setTimeout(()=>{ if(pickMarker){ map.removeLayer(pickMarker); pickMarker=null; } },1500);
-  overlay.classList.add('show');
+/* ---------- ปักจุดบนแผนที่ + ค้นหาสถานที่ ---------- */
+let pickMode=false, placeMarker=null, pickCoord=null;
+
+function setPlaceMarker(ll, fly){
+  pickCoord = Array.isArray(ll) ? {lat:ll[0], lng:ll[1]} : {lat:ll.lat, lng:ll.lng};
+  if(!placeMarker){
+    placeMarker = L.marker([pickCoord.lat,pickCoord.lng],{draggable:true,autoPan:true}).addTo(map);
+    placeMarker.on('dragend',()=>{ const p=placeMarker.getLatLng(); pickCoord={lat:p.lat,lng:p.lng}; });
+  } else {
+    placeMarker.setLatLng([pickCoord.lat,pickCoord.lng]);
+  }
+  if(fly) map.flyTo([pickCoord.lat,pickCoord.lng], 16);
+}
+function enterPickMode(){
+  pickMode=true; closeModal();
+  $('#pickBar').style.display='flex';
+  $('#placeSearch').value=''; hideResults();
+  pickCoord=null; if(placeMarker){ map.removeLayer(placeMarker); placeMarker=null; }
+  const lat=toNum($('#f_lat').value), lng=toNum($('#f_lng').value);
+  if(lat!=null && lng!=null){ setPlaceMarker([lat,lng], false); map.setView([lat,lng], Math.max(map.getZoom(),15)); }
+  setTimeout(()=>map.invalidateSize(),60);
+}
+function exitPickMode(){
+  pickMode=false; $('#pickBar').style.display='none'; hideResults();
+  if(placeMarker){ map.removeLayer(placeMarker); placeMarker=null; }
+}
+$('#pickMap').addEventListener('click', enterPickMode);
+$('#pickConfirm').addEventListener('click',()=>{
+  if(!pickCoord){ alert('ยังไม่ได้เลือกตำแหน่ง — แตะบนแผนที่ หรือค้นหาสถานที่ก่อนครับ'); return; }
+  $('#f_lat').value=pickCoord.lat.toFixed(6);
+  $('#f_lng').value=pickCoord.lng.toFixed(6);
+  exitPickMode(); overlay.classList.add('show');
+});
+$('#pickCancel').addEventListener('click',()=>{ exitPickMode(); overlay.classList.add('show'); });
+map.on('click',e=>{ if(pickMode){ hideResults(); setPlaceMarker(e.latlng,false); } });
+
+/* ค้นหาสถานที่ด้วย Nominatim (ฟรี ไม่ต้องใช้ Key) */
+const placeResults=$('#placeResults');
+function hideResults(){ placeResults.classList.remove('show'); placeResults.innerHTML=''; }
+let searchTimer=null;
+$('#placeSearch').addEventListener('input',e=>{
+  const q=e.target.value.trim();
+  clearTimeout(searchTimer);
+  if(q.length<3){ hideResults(); return; }
+  searchTimer=setTimeout(()=>doPlaceSearch(q), 700);  // หน่วงตามกติกา Nominatim
+});
+function doPlaceSearch(q){
+  placeResults.innerHTML='<div class="pres-empty">⏳ กำลังค้นหา...</div>'; placeResults.classList.add('show');
+  const url='https://nominatim.openstreetmap.org/search?format=json&accept-language=th&countrycodes=th&limit=5&q='+encodeURIComponent(q);
+  fetch(url,{headers:{'Accept':'application/json'}})
+    .then(r=>r.json())
+    .then(list=>{
+      if(!Array.isArray(list)||!list.length){ placeResults.innerHTML='<div class="pres-empty">ไม่พบสถานที่ — ลองพิมพ์ ตำบล/อำเภอ/จังหวัด</div>'; return; }
+      placeResults.innerHTML=list.map(r=>{
+        const parts=String(r.display_name||'').split(',').map(s=>s.trim());
+        return `<div class="pres" data-lat="${r.lat}" data-lng="${r.lon}">
+          <div class="pres-main">${esc(parts.slice(0,2).join(', '))}</div>
+          <div class="pres-sub">${esc(parts.slice(2).join(', '))}</div></div>`;
+      }).join('');
+    })
+    .catch(()=>{ placeResults.innerHTML='<div class="pres-empty">ค้นหาไม่ได้ (ตรวจอินเทอร์เน็ต)</div>'; });
+}
+placeResults.addEventListener('click',e=>{
+  const row=e.target.closest('.pres'); if(!row) return;
+  setPlaceMarker([parseFloat(row.dataset.lat), parseFloat(row.dataset.lng)], true);
+  $('#placeSearch').value=row.querySelector('.pres-main').textContent;
+  hideResults();
 });
 
 /* ============================================================
