@@ -144,7 +144,8 @@
   /* ===== Route banner ===== */
   #routeBanner{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:950;display:none;
     background:#0f172a;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:var(--shadow);
-    align-items:center;gap:12px;font-size:14px;max-width:92%}
+    align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 10px;font-size:14px;max-width:94%}
+  #routeBanner #routeText{flex:1 1 auto;min-width:0}
   #routeBanner b{color:#7dd3fc}
   #routeBanner button{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
   #routeBanner #routeGmap{display:none;background:#16a34a;color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;text-decoration:none;font-weight:600}
@@ -210,11 +211,30 @@
 
   /* ===== Mobile ===== */
   @media(max-width:760px){
+    /* หัว: กะทัดรัด */
+    header{padding:7px 12px;gap:8px}
+    .logo{font-size:15px} .logo .drop{font-size:18px} .logo .sub{display:none}
+    .hgrow{gap:6px;width:100%}
+    .chip{font-size:11.5px;padding:3px 8px;gap:4px}
+    /* แถบเครื่องมือ: ค้นหาเต็มแถว, ปุ่มเล็กลง, ซ่อนปุ่มเพิ่มหมุด (ใช้ปุ่ม + บนแผนที่แทน) */
+    .toolbar{padding:7px 10px;gap:6px}
+    .search{min-width:100%;order:-1}
+    .filters button{padding:6px 10px;font-size:12.5px}
+    .btn{padding:7px 11px;font-size:12.5px}
+    #btnAdd{display:none}
+    /* เลย์เอาต์: แผนที่ยืดเต็มที่ + รายการด้านล่าง */
     .main{flex-direction:column}
-    #sidebar{width:100%;height:40vh;border-right:0;border-top:1px solid var(--line);order:2}
-    #map{order:1;height:60vh}
-    .logo .sub{display:none}
-    .fab{bottom:42vh}
+    #map{order:1;flex:1 1 auto;height:auto;min-height:0}
+    #sidebar{order:2;width:100%;height:40vh;flex:0 0 auto;border-right:0;border-top:1px solid var(--line)}
+    /* ปุ่ม + ลอยมุมขวาล่างของแผนที่ (เหนือรายการ) */
+    .fab{bottom:calc(40vh + 14px);right:14px;width:50px;height:50px;font-size:26px}
+    /* ปุ่มสลับแผนที่: เหลือไอคอน */
+    #layerToggle button{padding:7px 9px;font-size:14px} #layerToggle .lt-txt{display:none}
+    /* แถบนำทาง: ข้อความเต็มบรรทัด ปุ่มอยู่บรรทัดล่าง */
+    #routeBanner{font-size:12.5px;padding:8px 12px;max-width:94%;top:8px}
+    #routeBanner #routeText{flex:1 1 100%;text-align:center}
+    /* ฟอร์ม: เต็มจอ */
+    .modal{max-width:100%;max-height:94vh}
   }
 </style>
 </head>
@@ -251,8 +271,8 @@
   <div id="map"></div>
 
   <div id="layerToggle">
-    <button data-layer="map" class="active">🗺️ แผนที่</button>
-    <button data-layer="sat">🛰️ ดาวเทียม</button>
+    <button data-layer="map" class="active">🗺️ <span class="lt-txt">แผนที่</span></button>
+    <button data-layer="sat">🛰️ <span class="lt-txt">ดาวเทียม</span></button>
   </div>
 
   <button class="fab" id="fabAdd" title="เพิ่มหมุด">＋</button>
