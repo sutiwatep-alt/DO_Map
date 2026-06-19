@@ -26,12 +26,20 @@ function toNum(v){ if(v===''||v==null) return null; const n=parseFloat(String(v)
 function parseLatLng(str){
   if(!str) return null;
   const s=String(str).trim();
-  const nums=s.match(/-?\d+(?:\.\d+)?/g);
-  if(!nums || nums.length<2) return null;
-  let lat=parseFloat(nums[0]), lng=parseFloat(nums[1]);
-  const up=s.toUpperCase();
-  if(up.includes('S')) lat=-Math.abs(lat);
-  if(up.includes('W')) lng=-Math.abs(lng);
+  // แปลงพิกัด 1 ส่วน รองรับ DMS: "10°05'07.8\"N" → ทศนิยม
+  function dec(part){
+    const n=String(part).match(/-?\d+(?:\.\d+)?/g);
+    if(!n || !n.length) return NaN;
+    let v=Math.abs(parseFloat(n[0])) + (n[1]?parseFloat(n[1])/60:0) + (n[2]?parseFloat(n[2])/3600:0);
+    if(parseFloat(n[0])<0 || /[SsWw]/.test(part)) v=-v;
+    return v;
+  }
+  let latStr, lngStr;
+  const mDir=s.match(/(.*?[NnSs])[ ,]+(.*?[EeWw])/);   // มีทิศ N/S ... E/W (รองรับ DMS)
+  if(mDir){ latStr=mDir[1]; lngStr=mDir[2]; }
+  else if(s.includes(',')){ const p=s.split(','); latStr=p[0]; lngStr=p.slice(1).join(','); }
+  else { const n=s.match(/-?\d+(?:\.\d+)?/g); if(n && n.length>=2){ latStr=n[0]; lngStr=n[1]; } else return null; }
+  const lat=dec(latStr), lng=dec(lngStr);
   if(isNaN(lat)||isNaN(lng)||Math.abs(lat)>90||Math.abs(lng)>180) return null;
   return {lat,lng};
 }
@@ -45,6 +53,13 @@ function computeStatus(r){
   }
   return "offline";
 }
+// สถานะหมุด: ถ้าผูก Sheet ใช้เวลาล่าสุดจาก Sheet (เก่ากว่า N นาที = ออฟไลน์), ไม่งั้นใช้ค่าที่กรอกเอง
+function stationStatus(st){
+  if(st.sheet && liveTimes[st.id]){
+    return (Date.now()-liveTimes[st.id])/60000 <= (CFG.sheetOfflineMinutes||20) ? 'online' : 'offline';
+  }
+  return computeStatus(st);
+}
 function haversine(a,b,c,d){const R=6371,r=Math.PI/180,dLat=(c-a)*r,dLon=(d-b)*r;const x=Math.sin(dLat/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
 function fmtDist(km){ if(km==null) return ""; return km<1 ? Math.round(km*1000)+" ม." : km.toFixed(1)+" กม."; }
 function nowStr(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
@@ -53,15 +68,24 @@ function nowStr(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return `${
    แผนที่
    ============================================================ */
 const map = L.map('map',{zoomControl:true}).setView(CFG.mapCenter||[13.5,101], CFG.mapZoom||7);
-function addOSM(){ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map); }
-(function baseLayer(){
-  if(CFG.googleApiKey){
-    const sc=document.createElement('script');
-    sc.src=`https://maps.googleapis.com/maps/api/js?key=${CFG.googleApiKey}`;
-    sc.onload=()=>{ try{ L.gridLayer.googleMutant({type:'roadmap'}).addTo(map);}catch(e){addOSM();} };
-    sc.onerror=addOSM; document.head.appendChild(sc);
-  } else addOSM();
-})();
+
+// เลเยอร์ฐาน: แผนที่ปกติ (OSM) และ ดาวเทียม+ป้ายชื่อ (Esri imagery + labels/roads)
+const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
+const satLayer = L.layerGroup([
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'ภาพดาวเทียม &copy; Esri'}),
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}),
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}),
+]);
+let currentBase=null;
+function setBase(which){
+  const next = which==='sat' ? satLayer : osmLayer;
+  if(currentBase===next) return;
+  if(currentBase) map.removeLayer(currentBase);
+  next.addTo(map); currentBase=next;
+  document.querySelectorAll('#layerToggle button').forEach(b=>b.classList.toggle('active', b.dataset.layer===which));
+}
+setBase('map');
+$('#layerToggle').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setBase(b.dataset.layer); });
 
 function pinIcon(status){
   const color = status==='online' ? '#16a34a' : '#94a3b8';
@@ -81,6 +105,8 @@ let activeFilter='all', searchText='';
 let firstFit=true, lastMeta=null;
 const markerLayer = L.layerGroup().addTo(map);
 const markersById = {};
+const liveTimes = {};            // id -> เวลาล่าสุดจาก Sheet (ms) สำหรับเช็คออนไลน์/ออฟไลน์
+let statusTimer = null;
 
 /* ============================================================
    STORE — สลับระหว่าง Firebase / เก็บในเครื่อง
@@ -157,11 +183,13 @@ async function initStore(){
    ============================================================ */
 function onData(list, meta){
   lastMeta=meta;
-  STATIONS = list.map(d=>({ ...d, lat:toNum(d.lat), lng:toNum(d.lng), _status:computeStatus(d), _dist:null }))
+  STATIONS = list.map(d=>({ ...d, lat:toNum(d.lat), lng:toNum(d.lng), _dist:null }))
                  .filter(d=>d.lat!=null && d.lng!=null && Math.abs(d.lat)<=90 && Math.abs(d.lng)<=180);
+  STATIONS.forEach(st=>{ st._status=stationStatus(st); });
   if(userLoc) recomputeDistances();
   renderMarkers(); renderList(); updateStats(); renderSync(meta);
   if(firstFit && STATIONS.length){ fitAll(); firstFit=false; }
+  if(!statusTimer && STATIONS.some(s=>s.sheet)){ refreshStatuses(); statusTimer=setInterval(refreshStatuses, 120000); }
 }
 
 function recomputeDistances(){ STATIONS.forEach(s=>{ s._dist = userLoc ? haversine(userLoc[0],userLoc[1],s.lat,s.lng) : null; }); }
@@ -283,9 +311,10 @@ function locateMe(after){
    นำทาง (วาดเส้นทางในหน้านี้ด้วย OSRM)
    ============================================================ */
 let routeControl=null;
-function clearRoute(){ if(routeControl){ try{map.removeControl(routeControl);}catch(e){} routeControl=null; } $('#routeBanner').style.display='none'; }
+function clearRoute(){ if(routeControl){ try{map.removeControl(routeControl);}catch(e){} routeControl=null; } $('#routeBanner').style.display='none'; const g=$('#routeGmap'); if(g) g.style.display='none'; }
 function navigateTo(id){
   const st=STATIONS.find(s=>s.id===id); if(!st) return;
+  map.closePopup();   // ปิดป๊อปอัปก่อน จะได้ไม่บังเส้นทาง
   if(!userLoc){ locateMe(()=>navigateTo(id)); return; }
   clearRoute();
   $('#routeBanner').style.display='flex';
@@ -300,6 +329,9 @@ function navigateTo(id){
   routeControl.on('routesfound',e=>{
     const r=e.routes[0];
     $('#routeText').innerHTML=`🚗 ไป <b>${esc(st.name||'จุดนี้')}</b> • ${(r.summary.totalDistance/1000).toFixed(1)} กม. • ~${Math.round(r.summary.totalTime/60)} นาที`;
+    const g=$('#routeGmap');
+    g.href=`https://www.google.com/maps/dir/?api=1&origin=${userLoc[0]},${userLoc[1]}&destination=${st.lat},${st.lng}&travelmode=driving`;
+    g.style.display='inline-block';
   });
   routeControl.on('routingerror',()=>{ $('#routeText').textContent='หาเส้นทางไม่ได้ (ต้องมีเน็ต) ลองใหม่อีกครั้ง'; });
 }
@@ -456,52 +488,75 @@ function parseCSV(text){
 
 function loadLiveById(id){ const st=STATIONS.find(s=>s.id===id); if(st) loadLive(st); }
 
-async function loadLive(st){
-  const box=document.getElementById('live-'+st.id);
-  if(!box) return;
-  const id=extractSheetId(st.sheet);
-  const gid=extractGid(st.sheet);
-  if(!id){ box.innerHTML='<div class="pp-live-err">ลิงก์ Sheet ไม่ถูกต้อง</div>'; return; }
-  box.innerHTML='<div class="pp-live-load">⏳ กำลังดึงค่าล่าสุดจาก Sheet...</div>';
-  // ลองหลายแท็บ: gid (ถ้าระบุ) → แท็บแรก → แท็บ "DataLog" (ตามระบบ DoRev) — ใช้อันแรกที่มีข้อมูล
+// ดึงแถวล่าสุดจาก Sheet (ลองหลายแท็บ: gid → DataLog → แท็บแรก) คืน {header,latest,tCol,doCol,dlUrl}
+async function fetchLatest(st){
+  const id=extractSheetId(st.sheet), gid=extractGid(st.sheet);
+  if(!id) return null;
   const urls=[];
   if(gid) urls.push(gvizCsvUrl(id,gid));
-  urls.push(gvizCsvUrl(id));
   urls.push(gvizCsvUrl(id)+'&sheet=DataLog');
-  let rows=null, dlUrl=(gid?exportCsvUrl(id,gid):exportCsvUrl(id));
+  urls.push(gvizCsvUrl(id));
   for(const url of urls){
     try{
       const text=await fetch(url,{cache:'no-store'}).then(r=>r.ok?r.text():'');
-      const rr=parseCSV(text).filter(r=>r.length>1 && r.some(c=>String(c).trim()!==''));
-      if(rr.length>=2){ rows=rr; dlUrl=url; break; }
+      const rows=parseCSV(text).filter(r=>r.length>1 && r.some(c=>String(c).trim()!==''));
+      if(rows.length>=2){
+        const header=rows[0].map(h=>h.trim()), data=rows.slice(1);
+        let tCol=header.findIndex(h=>/วันที่|เวลา|date|time/i.test(h)); if(tCol<0) tCol=0;
+        const doCol=header.findIndex(h=>/DO/i.test(h));
+        let latest=data[0], best=-Infinity;
+        for(const r of data){ const ts=Date.parse(String(r[tCol]||'').replace(' ','T')); if(!isNaN(ts)&&ts>best){best=ts;latest=r;} }
+        return {header,latest,tCol,doCol,dlUrl:url};
+      }
     }catch(e){}
   }
-  if(!rows){
+  return null;
+}
+
+async function loadLive(st){
+  const box=document.getElementById('live-'+st.id);
+  if(!box) return;
+  if(!extractSheetId(st.sheet)){ box.innerHTML='<div class="pp-live-err">ลิงก์ Sheet ไม่ถูกต้อง</div>'; return; }
+  box.innerHTML='<div class="pp-live-load">⏳ กำลังดึงค่าล่าสุดจาก Sheet...</div>';
+  const r=await fetchLatest(st);
+  if(!r){
+    const id=extractSheetId(st.sheet), gid=extractGid(st.sheet);
     box.innerHTML='<div class="pp-live-err">อ่าน Sheet ไม่ได้ หรือยังไม่มีข้อมูล — ตรวจว่าแชร์ "ผู้ที่มีลิงก์ดูได้" · '
       +'<a href="'+(gid?exportCsvUrl(id,gid):exportCsvUrl(id))+'" target="_blank" rel="noopener">เปิด CSV</a></div>';
     return;
   }
-  const header=rows[0].map(h=>h.trim()), data=rows.slice(1);
-  let tCol=header.findIndex(h=>/วันที่|เวลา|date|time/i.test(h)); if(tCol<0) tCol=0;
-  const doCol=header.findIndex(h=>/DO/i.test(h));
-  // ค่าล่าสุด = แถวที่เวลามากสุด (กันกรณีเรียงเก่า→ใหม่ หรือ ใหม่→เก่า)
-  let latest=data[0], best=-Infinity;
-  for(const r of data){ const ts=Date.parse(String(r[tCol]||'').replace(' ','T')); if(!isNaN(ts)&&ts>best){best=ts;latest=r;} }
+  // อัปเดตสถานะ online/offline จากเวลาล่าสุด (อัปไอคอนหมุดเฉพาะตัว ไม่ rebuild ทั้งหมด เพื่อไม่ให้ popup ปิด)
+  const ts=Date.parse(String(r.latest[r.tCol]||'').replace(' ','T'));
+  if(!isNaN(ts)){ liveTimes[st.id]=ts; st._status=stationStatus(st); markersById[st.id]?.setIcon(pinIcon(st._status)); renderList(); updateStats(); }
+  const fresh = !isNaN(ts) ? ((Date.now()-ts)/60000 <= (CFG.sheetOfflineMinutes||20)) : null;
+  const badge = fresh===null ? '' : (fresh ? '<span class="live-on">● ออนไลน์</span>' : '<span class="live-off">● ออฟไลน์ (ข้อมูลเก่า)</span>');
   let grid='';
-  header.forEach((h,i)=>{
-    if(i===tCol || i===doCol) return;
-    const v=String(latest[i]||'').trim(); if(!v) return;
+  r.header.forEach((h,i)=>{
+    if(i===r.tCol || i===r.doCol) return;
+    const v=String(r.latest[i]||'').trim(); if(!v) return;
     grid+=`<div><span>${esc(h)}</span><b>${esc(v)}</b></div>`;
   });
   box.innerHTML=
-    `<div class="pp-live-head">📊 ค่าล่าสุดจาก Google Sheet</div>
-     <div class="pp-live-do">DO <b>${esc(doCol>=0?latest[doCol]:'—')}</b> <small>mg/L</small></div>
-     <div class="pp-live-time">🕒 ${esc(latest[tCol]||'')}</div>
+    `<div class="pp-live-head">📊 ค่าล่าสุดจาก Google Sheet ${badge}</div>
+     <div class="pp-live-do">DO <b>${esc(r.doCol>=0?r.latest[r.doCol]:'—')}</b> <small>mg/L</small></div>
+     <div class="pp-live-time">🕒 ${esc(r.latest[r.tCol]||'')}</div>
      <div class="pp-live-grid">${grid}</div>
      <div class="pp-live-actions">
        <button class="pp-live-refresh" onclick="DO.live('${st.id}')">🔄 รีเฟรช</button>
-       <a class="pp-live-dl" href="${dlUrl}" target="_blank" rel="noopener">⬇️ ดาวน์โหลด CSV</a>
+       <a class="pp-live-dl" href="${r.dlUrl}" target="_blank" rel="noopener">⬇️ ดาวน์โหลด CSV</a>
      </div>`;
+}
+
+// เช็คสถานะหมุดที่ผูก Sheet ทุกตัว (ดึงเวลาล่าสุด → เทียบ 20 นาที) เรียกตอนโหลด + ทุก ~2 นาที
+async function refreshStatuses(){
+  const list=STATIONS.filter(s=>s.sheet && extractSheetId(s.sheet));
+  if(!list.length) return;
+  await Promise.all(list.map(async st=>{
+    const r=await fetchLatest(st);
+    if(r){ const ts=Date.parse(String(r.latest[r.tCol]||'').replace(' ','T')); if(!isNaN(ts)) liveTimes[st.id]=ts; }
+  }));
+  STATIONS.forEach(st=>{ st._status=stationStatus(st); markersById[st.id]?.setIcon(pinIcon(st._status)); });
+  renderList(); updateStats();
 }
 
 // เปิดให้ปุ่มใน popup/list เรียกได้

@@ -136,6 +136,10 @@
   .fab{position:absolute;right:16px;bottom:24px;z-index:900;background:var(--online);color:#fff;border:0;
     width:56px;height:56px;border-radius:50%;font-size:28px;cursor:pointer;box-shadow:0 8px 20px rgba(22,163,74,.45);display:flex;align-items:center;justify-content:center}
   .fab:active{transform:scale(.95)}
+  /* ===== ปุ่มสลับ แผนที่/ดาวเทียม ===== */
+  #layerToggle{position:absolute;top:10px;right:10px;z-index:800;display:flex;background:#fff;border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+  #layerToggle button{border:0;background:#fff;color:var(--muted);padding:7px 11px;font:inherit;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap}
+  #layerToggle button.active{background:var(--brand);color:#fff}
 
   /* ===== Route banner ===== */
   #routeBanner{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:950;display:none;
@@ -143,6 +147,9 @@
     align-items:center;gap:12px;font-size:14px;max-width:92%}
   #routeBanner b{color:#7dd3fc}
   #routeBanner button{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+  #routeBanner #routeGmap{display:none;background:#16a34a;color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;text-decoration:none;font-weight:600}
+  .pp-live-head .live-on{color:#15803d;font-weight:700;font-size:11px}
+  .pp-live-head .live-off{color:#dc2626;font-weight:700;font-size:11px}
 
   /* ===== Pick + place-search bar ===== */
   #pickBar{position:absolute;left:50%;transform:translateX(-50%);top:10px;z-index:1500;display:none;
@@ -229,10 +236,16 @@
   </aside>
   <div id="map"></div>
 
+  <div id="layerToggle">
+    <button data-layer="map" class="active">🗺️ แผนที่</button>
+    <button data-layer="sat">🛰️ ดาวเทียม</button>
+  </div>
+
   <button class="fab" id="fabAdd" title="เพิ่มหมุด">＋</button>
 
   <div id="routeBanner">
     <span id="routeText">กำลังหาเส้นทาง...</span>
+    <a id="routeGmap" target="_blank" rel="noopener">🧭 เปิดใน Google Maps</a>
     <button id="routeCancel">✕ ยกเลิก</button>
   </div>
   <div id="pickBar">
@@ -267,7 +280,7 @@
       <div class="field">
         <label>พิกัด (วางจาก Google Maps ได้เลย) *</label>
         <input id="f_coord" placeholder="เช่น 13.5421, 100.9912" />
-        <div class="hint" style="margin-top:2px">วางได้หลายแบบ เช่น <b>13.5421, 100.9912</b> &nbsp;หรือ&nbsp; <b>10.27284° N, 99.16552° E</b></div>
+        <div class="hint" style="margin-top:2px">วางจาก Google Maps ได้ทุกแบบ เช่น <b>13.5421, 100.9912</b> &nbsp;หรือ&nbsp; <b>10°05'07"N 99°05'07"E</b></div>
         <div class="latlng-tools">
           <button type="button" id="pickMap">📌 ปักจุดบนแผนที่</button>
           <button type="button" id="useGps">📍 ใช้ GPS ตอนนี้</button>
