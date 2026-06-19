@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>ระบบติดตามเครื่องวัด DO</title>
+
+<meta name="theme-color" content="#0369a1" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="DO Monitor" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
+
+<!-- ฟอนต์ไทย -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+<!-- แผนที่ + หาเส้นทาง -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.14.0/dist/Leaflet.GoogleMutant.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+<style>
+  :root{
+    --panel:#fff; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+    --brand:#0ea5e9; --brand-dark:#0369a1;
+    --online:#16a34a; --offline:#94a3b8; --danger:#dc2626; --warn:#d97706;
+    --shadow:0 6px 24px rgba(15,23,42,.12);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:'Prompt',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--ink);
+    background:#f1f5f9;display:flex;flex-direction:column;height:100vh;overflow:hidden;
+  }
+  button{font-family:inherit}
+
+  /* ===== Header ===== */
+  header{
+    background:linear-gradient(120deg,var(--brand-dark),var(--brand));color:#fff;
+    padding:8px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:var(--shadow);z-index:1200;
+  }
+  .logo{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px}
+  .logo .drop{font-size:21px}
+  .logo .sub{font-weight:400;opacity:.8;font-size:12px}
+  .hgrow{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .chip{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);padding:4px 10px;
+    border-radius:999px;font-size:13px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .chip b{font-weight:600}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.on{background:#bbf7d0}.dot.off{background:#cbd5e1}
+  #syncChip{cursor:default}
+
+  /* ===== Toolbar ===== */
+  .toolbar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap;z-index:1100}
+  .search{flex:1;min-width:150px;display:flex;align-items:center;gap:8px;background:#f1f5f9;border-radius:10px;padding:7px 12px}
+  .search input{border:0;background:transparent;outline:none;width:100%;font:inherit;font-size:14px;color:var(--ink)}
+  .filters{display:flex;gap:6px}
+  .filters button{border:1px solid var(--line);background:#fff;color:var(--muted);padding:7px 12px;border-radius:10px;font-size:13px;cursor:pointer;transition:.15s}
+  .filters button.active{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn{border:0;color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;box-shadow:var(--shadow)}
+  .btn:active{transform:translateY(1px)}
+  .btn-loc{background:var(--brand)} .btn-add{background:var(--online)}
+  .btn[disabled]{opacity:.6;cursor:default}
+
+  /* ===== Layout ===== */
+  .main{flex:1;display:flex;min-height:0;position:relative}
+  #sidebar{width:340px;background:#fff;border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column}
+  #map{flex:1;min-width:0}
+
+  /* ===== Station list ===== */
+  .list-head{padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff;z-index:2}
+  .station{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s;align-items:center}
+  .station:hover{background:#f8fafc}
+  .station.active{background:#e0f2fe;border-left:3px solid var(--brand);padding-left:11px}
+  .st-status{width:12px;height:12px;border-radius:50%;flex:0 0 auto}
+  .st-status.online{background:var(--online);box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+  .st-status.offline{background:var(--offline)}
+  .st-main{flex:1;min-width:0}
+  .st-name{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st-sub{font-size:12.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:0 0 auto}
+  .st-dist{font-size:12px;color:var(--brand-dark);font-weight:600;white-space:nowrap}
+  .st-nav{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;border-radius:8px;padding:4px 8px;font-size:12px;cursor:pointer}
+  .st-empty{padding:30px 16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
+
+  /* ===== Marker pin ===== */
+  .pin{position:relative;width:30px;height:42px}
+  .pin svg{position:absolute;inset:0;filter:drop-shadow(0 3px 3px rgba(0,0,0,.35))}
+  .pin .ring{position:absolute;left:5px;top:5px;width:20px;height:20px;border-radius:50%}
+  .pin.online .ring{animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5)}70%{box-shadow:0 0 0 12px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+
+  /* ===== Popup ===== */
+  .leaflet-popup-content{margin:0;width:250px !important}
+  .leaflet-popup-content-wrapper{border-radius:14px;overflow:hidden;padding:0}
+  .pp-photo{height:120px;background-size:cover;background-position:center;background-color:#e2e8f0}
+  .pp-body{padding:12px 14px}
+  .pp-name{font-size:16px;font-weight:600;margin:0 0 2px}
+  .pp-loc{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px}
+  .badge.online{background:#dcfce7;color:#15803d}.badge.offline{background:#f1f5f9;color:#64748b}
+  .pp-row{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:6px 0;border-top:1px dashed var(--line);margin-top:8px}
+  .pp-row span{color:var(--muted)} .pp-row b{font-weight:600;text-align:right}
+  .pp-do{font-size:22px;font-weight:700;color:var(--brand-dark)} .pp-do small{font-size:12px;color:var(--muted);font-weight:400}
+  .pp-dist{font-size:13px;color:var(--brand-dark);font-weight:600;margin-top:8px}
+  .pp-actions{display:flex;gap:8px;margin-top:12px}
+  .pp-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:0;padding:10px;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer}
+  .pp-nav{background:var(--brand);color:#fff} .pp-edit{background:#f1f5f9;color:var(--ink);flex:0 0 46px}
+
+  /* ===== FAB ===== */
+  .fab{position:absolute;right:16px;bottom:24px;z-index:900;background:var(--online);color:#fff;border:0;
+    width:56px;height:56px;border-radius:50%;font-size:28px;cursor:pointer;box-shadow:0 8px 20px rgba(22,163,74,.45);display:flex;align-items:center;justify-content:center}
+  .fab:active{transform:scale(.95)}
+
+  /* ===== Route banner ===== */
+  #routeBanner{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:950;display:none;
+    background:#0f172a;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:var(--shadow);
+    align-items:center;gap:12px;font-size:14px;max-width:92%}
+  #routeBanner b{color:#7dd3fc}
+  #routeBanner button{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+
+  /* ===== Pick banner ===== */
+  #pickBanner{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:1500;display:none;
+    background:var(--brand-dark);color:#fff;padding:10px 16px;border-radius:12px;box-shadow:var(--shadow);align-items:center;gap:12px;font-size:14px}
+  #pickBanner button{background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
+
+  /* ===== Modal form ===== */
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:2000;display:none;align-items:center;justify-content:center;padding:14px}
+  .overlay.show{display:flex}
+  .modal{background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow)}
+  .modal h2{margin:0;padding:16px 18px;font-size:17px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .modal h2 .x{cursor:pointer;color:var(--muted);font-weight:400;font-size:22px;line-height:1}
+  .form{padding:16px 18px;display:grid;gap:12px}
+  .field{display:grid;gap:5px}
+  .field label{font-size:13px;color:var(--muted)}
+  .field input,.field select,.field textarea{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;outline:none;width:100%}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--brand)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .latlng-tools{display:flex;gap:8px;margin-top:4px}
+  .latlng-tools button{flex:1;border:1px solid var(--line);background:#f8fafc;border-radius:9px;padding:8px;font-size:12.5px;cursor:pointer;color:var(--brand-dark)}
+  .modal-foot{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px}
+  .modal-foot button{flex:1;border:0;padding:11px;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer}
+  .save{background:var(--online);color:#fff}.cancel{background:#f1f5f9;color:var(--ink)}
+  .del{background:#fee2e2;color:var(--danger);flex:0 0 46px}
+  .hint{font-size:12px;color:var(--muted);background:#f8fafc;padding:8px 10px;border-radius:8px;line-height:1.6}
+  .banner-demo{background:#fffbeb;color:#92400e;font-size:12.5px;padding:7px 14px;text-align:center;border-bottom:1px solid #fde68a;display:none}
+
+  /* ===== Mobile ===== */
+  @media(max-width:760px){
+    .main{flex-direction:column}
+    #sidebar{width:100%;height:40vh;border-right:0;border-top:1px solid var(--line);order:2}
+    #map{order:1;height:60vh}
+    .logo .sub{display:none}
+    .fab{bottom:42vh}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="drop">💧</span><span>ติดตามเครื่องวัด DO <span class="sub">| DO Monitoring</span></span></div>
+  <div class="hgrow">
+    <span class="chip" id="syncChip"><span class="dot off"></span> กำลังเริ่ม...</span>
+    <span class="chip"><span class="dot off" style="background:#fff"></span> ทั้งหมด <b id="stTotal">0</b></span>
+    <span class="chip"><span class="dot on"></span> ออนไลน์ <b id="stOnline">0</b></span>
+    <span class="chip"><span class="dot off"></span> ออฟไลน์ <b id="stOffline">0</b></span>
+  </div>
+</header>
+
+<div class="banner-demo" id="demoBanner">⚠ โหมดเดโม — เก็บข้อมูลในเครื่องนี้เท่านั้น (ยังไม่ตั้งค่า Firebase) ดูวิธีเปิดซิงค์ข้ามเครื่องใน README</div>
+
+<div class="toolbar">
+  <label class="search">🔍 <input id="search" type="text" placeholder="ค้นหาชื่อฟาร์ม / สถานที่..." /></label>
+  <div class="filters">
+    <button data-f="all" class="active">ทั้งหมด</button>
+    <button data-f="online">ออนไลน์</button>
+    <button data-f="offline">ออฟไลน์</button>
+  </div>
+  <button class="btn btn-loc" id="btnLoc">📍 ตำแหน่งฉัน</button>
+  <button class="btn btn-add" id="btnAdd">➕ เพิ่มหมุด</button>
+</div>
+
+<div class="main">
+  <aside id="sidebar">
+    <div class="list-head"><span id="listCount">กำลังโหลด...</span><span id="sortNote"></span></div>
+    <div id="list"></div>
+  </aside>
+  <div id="map"></div>
+
+  <button class="fab" id="fabAdd" title="เพิ่มหมุด">＋</button>
+
+  <div id="routeBanner">
+    <span id="routeText">กำลังหาเส้นทาง...</span>
+    <button id="routeCancel">✕ ยกเลิก</button>
+  </div>
+  <div id="pickBanner">
+    <span>👆 แตะบนแผนที่เพื่อปักตำแหน่ง</span>
+    <button id="pickCancel">ยกเลิก</button>
+  </div>
+</div>
+
+<!-- ===== Modal เพิ่ม/แก้หมุด ===== -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2><span id="modalTitle">เพิ่มหมุดใหม่</span><span class="x" id="modalClose">✕</span></h2>
+    <div class="form">
+      <input type="hidden" id="f_id" />
+      <div class="field">
+        <label>ชื่อฟาร์ม / จุดติดตั้ง *</label>
+        <input id="f_name" placeholder="เช่น ฟาร์มกุ้งบางปะกง 1" />
+      </div>
+      <div class="field">
+        <label>สถานที่ / ที่อยู่</label>
+        <input id="f_location" placeholder="เช่น บางปะกง ฉะเชิงเทรา" />
+      </div>
+      <div class="field">
+        <label>พิกัด (ละติจูด, ลองจิจูด) *</label>
+        <div class="row2">
+          <input id="f_lat" placeholder="lat เช่น 13.5421" />
+          <input id="f_lng" placeholder="lng เช่น 100.9912" />
+        </div>
+        <div class="latlng-tools">
+          <button type="button" id="pickMap">📌 ปักจุดบนแผนที่</button>
+          <button type="button" id="useGps">📍 ใช้ GPS ตอนนี้</button>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>สถานะ</label>
+          <select id="f_status">
+            <option value="">อัตโนมัติ (จากเวลาอัปเดต)</option>
+            <option value="online">ออนไลน์</option>
+            <option value="offline">ออฟไลน์</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>ค่า DO ล่าสุด (mg/L)</label>
+          <input id="f_do_value" placeholder="เช่น 5.8" />
+        </div>
+      </div>
+      <div class="field">
+        <label>เวลาอัปเดตค่า DO</label>
+        <div class="row2">
+          <input id="f_do_updated" placeholder="2026-06-19 08:30" />
+          <button type="button" class="latlng-tools" id="nowBtn" style="border:1px solid var(--line);background:#f8fafc;border-radius:9px;color:var(--brand-dark);cursor:pointer">⏱ ตอนนี้</button>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>ติดต่อ</label>
+          <input id="f_contact" placeholder="ชื่อ + เบอร์โทร" />
+        </div>
+        <div class="field">
+          <label>วันที่ติดตั้ง</label>
+          <input id="f_install_date" placeholder="2025-11-01" />
+        </div>
+      </div>
+      <div class="field">
+        <label>ลิงก์รูป (ถ้ามี)</label>
+        <input id="f_photo" placeholder="https://..." />
+      </div>
+      <div class="field">
+        <label>หมายเหตุ</label>
+        <textarea id="f_note" rows="2" placeholder="เช่น บ่อ A ระบบให้อากาศปกติ"></textarea>
+      </div>
+      <div class="hint">💡 พิกัดหาได้จาก: เปิด Google Maps → คลิกขวาที่จุด → คัดลอกพิกัด หรือกด "ใช้ GPS ตอนนี้" ตอนยืนอยู่หน้างาน</div>
+    </div>
+    <div class="modal-foot">
+      <button class="del" id="btnDelete" title="ลบหมุดนี้" style="display:none">🗑</button>
+      <button class="cancel" id="btnCancel">ยกเลิก</button>
+      <button class="save" id="btnSave">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<script src="./config.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

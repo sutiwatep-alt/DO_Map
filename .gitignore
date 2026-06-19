@@ -1,0 +1,14 @@
+# ===== ❌ ห้ามอัปขึ้น GitHub สาธารณะ =====
+# ไฟล์ Excel ข้อมูลฟาร์มจริง
+DATA/
+# เว็บ DO เดิม (มี GAS URL / Telegram token)
+DoRev-WebUI-4/
+# ไฟล์ภายในของเครื่องมือ
+.claude/
+
+# ===== ระบบปฏิบัติการ =====
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.xlsx
