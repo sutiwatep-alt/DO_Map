@@ -1,5 +1,5 @@
 /* Service Worker — แคชแอปไว้ให้เปิดออฟไลน์ + แคชภาพแผนที่โซนที่เคยดู */
-const CACHE = 'do-monitor-v4';
+const CACHE = 'do-monitor-v8';
 const SHELL = [
   './', './index.html', './app.js', './config.js', './manifest.json', './icon.svg'
 ];
@@ -24,7 +24,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
 
   // ❌ อย่าแตะข้อมูล Firestore/Firebase realtime (ปล่อยให้ Firebase จัดการออฟไลน์เอง)
-  if (/(firestore\.googleapis\.com|firebaseinstallations|identitytoolkit|firebaseremoteconfig|\.firebaseio\.com|google-analytics|nominatim\.openstreetmap\.org|router\.project-osrm\.org)/.test(url.href)) {
+  if (/(firestore\.googleapis\.com|firebaseinstallations|identitytoolkit|firebaseremoteconfig|\.firebaseio\.com|google-analytics|nominatim\.openstreetmap\.org|router\.project-osrm\.org|docs\.google\.com)/.test(url.href)) {
     return;
   }
 

@@ -96,6 +96,11 @@
   .pin .ring{position:absolute;left:5px;top:5px;width:20px;height:20px;border-radius:50%}
   .pin.online .ring{animation:pulse 1.8s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5)}70%{box-shadow:0 0 0 12px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+  /* ===== ป้ายชื่อฟาร์มบนหมุด ===== */
+  .leaflet-tooltip.pin-label{background:rgba(255,255,255,.95);border:1px solid var(--line);border-radius:7px;
+    padding:1px 7px;font-family:'Prompt',sans-serif;font-size:11px;font-weight:600;color:var(--ink);
+    box-shadow:0 1px 4px rgba(0,0,0,.25);white-space:nowrap}
+  .leaflet-tooltip.pin-label::before{display:none}
 
   /* ===== Popup ===== */
   .leaflet-popup-content{margin:0;width:250px !important}
@@ -113,6 +118,19 @@
   .pp-actions{display:flex;gap:8px;margin-top:12px}
   .pp-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:0;padding:10px;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer}
   .pp-nav{background:var(--brand);color:#fff} .pp-edit{background:#f1f5f9;color:var(--ink);flex:0 0 46px}
+  /* ===== Live data from Google Sheet ===== */
+  .pp-live{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+  .pp-live-head{font-size:11.5px;color:var(--muted);margin-bottom:3px}
+  .pp-live-do{font-size:13px;color:var(--muted)} .pp-live-do b{font-size:26px;font-weight:700;color:var(--brand-dark)}
+  .pp-live-time{font-size:11.5px;color:var(--muted);margin:1px 0 8px}
+  .pp-live-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  .pp-live-grid div{display:flex;justify-content:space-between;gap:6px;font-size:12px;border-bottom:1px dotted var(--line);padding:3px 0}
+  .pp-live-grid span{color:var(--muted)} .pp-live-grid b{font-weight:600;text-align:right}
+  .pp-live-actions{display:flex;gap:8px;margin-top:10px}
+  .pp-live-refresh,.pp-live-dl{flex:1;text-align:center;border:0;border-radius:9px;padding:8px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;text-decoration:none}
+  .pp-live-refresh{background:#f1f5f9;color:var(--ink)} .pp-live-dl{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
+  .pp-live-load,.pp-live-err{font-size:12.5px;color:var(--muted);padding:6px 0;line-height:1.6}
+  .pp-live-err a{color:var(--brand-dark)}
 
   /* ===== FAB ===== */
   .fab{position:absolute;right:16px;bottom:24px;z-index:900;background:var(--online);color:#fff;border:0;
@@ -247,11 +265,9 @@
         <input id="f_location" placeholder="เช่น บางปะกง ฉะเชิงเทรา" />
       </div>
       <div class="field">
-        <label>พิกัด (ละติจูด, ลองจิจูด) *</label>
-        <div class="row2">
-          <input id="f_lat" placeholder="lat เช่น 13.5421" />
-          <input id="f_lng" placeholder="lng เช่น 100.9912" />
-        </div>
+        <label>พิกัด (วางจาก Google Maps ได้เลย) *</label>
+        <input id="f_coord" placeholder="เช่น 13.5421, 100.9912" />
+        <div class="hint" style="margin-top:2px">วางได้หลายแบบ เช่น <b>13.5421, 100.9912</b> &nbsp;หรือ&nbsp; <b>10.27284° N, 99.16552° E</b></div>
         <div class="latlng-tools">
           <button type="button" id="pickMap">📌 ปักจุดบนแผนที่</button>
           <button type="button" id="useGps">📍 ใช้ GPS ตอนนี้</button>
@@ -272,11 +288,16 @@
         </div>
       </div>
       <div class="field">
-        <label>เวลาอัปเดตค่า DO</label>
+        <label>เวลาอัปเดตค่า DO (กรอกเอง — ใช้เมื่อไม่ผูก Sheet)</label>
         <div class="row2">
           <input id="f_do_updated" placeholder="2026-06-19 08:30" />
           <button type="button" class="latlng-tools" id="nowBtn" style="border:1px solid var(--line);background:#f8fafc;border-radius:9px;color:var(--brand-dark);cursor:pointer">⏱ ตอนนี้</button>
         </div>
+      </div>
+      <div class="field">
+        <label>📊 ลิงก์ Google Sheet ของบ่อ (ดึงค่า DO สด)</label>
+        <input id="f_sheet" placeholder="วางลิงก์ Google Sheet ของบ่อนี้ (ถ้ามี)" />
+        <div class="hint" style="margin-top:2px">ถ้าใส่ลิงก์นี้ เวลากดหมุดจะดึง "ค่าล่าสุด" จาก Sheet มาโชว์ + มีปุ่มดาวน์โหลด CSV — Sheet ต้องตั้งแชร์ "ผู้ที่มีลิงก์ → ผู้อ่าน"</div>
       </div>
       <div class="row2">
         <div class="field">

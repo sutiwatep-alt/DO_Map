@@ -22,6 +22,19 @@ const SAMPLE_DATA = [
 const $ = (s)=>document.querySelector(s);
 const esc = (s)=>String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toNum(v){ if(v===''||v==null) return null; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?null:n; }
+// แปลงพิกัดช่องเดียว → {lat,lng} รองรับ "13.5, 100.9" และ "10.27284° N, 99.16552° E"
+function parseLatLng(str){
+  if(!str) return null;
+  const s=String(str).trim();
+  const nums=s.match(/-?\d+(?:\.\d+)?/g);
+  if(!nums || nums.length<2) return null;
+  let lat=parseFloat(nums[0]), lng=parseFloat(nums[1]);
+  const up=s.toUpperCase();
+  if(up.includes('S')) lat=-Math.abs(lat);
+  if(up.includes('W')) lng=-Math.abs(lng);
+  if(isNaN(lat)||isNaN(lng)||Math.abs(lat)>90||Math.abs(lng)>180) return null;
+  return {lat,lng};
+}
 function computeStatus(r){
   const s=String(r.status||"").trim().toLowerCase();
   if(["online","on","1","true"].includes(s)) return "online";
@@ -145,7 +158,7 @@ async function initStore(){
 function onData(list, meta){
   lastMeta=meta;
   STATIONS = list.map(d=>({ ...d, lat:toNum(d.lat), lng:toNum(d.lng), _status:computeStatus(d), _dist:null }))
-                 .filter(d=>d.lat!=null && d.lng!=null);
+                 .filter(d=>d.lat!=null && d.lng!=null && Math.abs(d.lat)<=90 && Math.abs(d.lng)<=180);
   if(userLoc) recomputeDistances();
   renderMarkers(); renderList(); updateStats(); renderSync(meta);
   if(firstFit && STATIONS.length){ fitAll(); firstFit=false; }
@@ -153,15 +166,22 @@ function onData(list, meta){
 
 function recomputeDistances(){ STATIONS.forEach(s=>{ s._dist = userLoc ? haversine(userLoc[0],userLoc[1],s.lat,s.lng) : null; }); }
 function fitAll(){ const pts=STATIONS.map(s=>[s.lat,s.lng]); if(userLoc) pts.push(userLoc); if(pts.length) map.fitBounds(pts,{padding:[60,60],maxZoom:13}); }
+function fitVisible(){ const pts=visibleStations().map(s=>[s.lat,s.lng]); if(pts.length) map.fitBounds(pts,{padding:[70,70],maxZoom:14}); }
 
 /* ---------- หมุด ---------- */
 function buildPopup(st){
   const online=st._status==='online';
   const photo = st.photo ? `<div class="pp-photo" style="background-image:url('${esc(st.photo)}')"></div>`:'';
-  const doVal = (st.do_value!=null && st.do_value!=='') ? `${esc(st.do_value)} <small>mg/L</small>` : '<small>—</small>';
   const dist = st._dist!=null ? `<div class="pp-dist">📏 ห่างจากคุณ ~${fmtDist(st._dist)}</div>`:'';
-  const rows=[`<div class="pp-row"><span>ค่า DO ล่าสุด</span><b class="pp-do">${doVal}</b></div>`];
-  if(st.do_updated)    rows.push(`<div class="pp-row"><span>อัปเดตเมื่อ</span><b>${esc(st.do_updated)}</b></div>`);
+  let doBlock;
+  if(st.sheet){
+    doBlock = `<div class="pp-live" id="live-${st.id}"></div>`;
+  } else {
+    const doVal=(st.do_value!=null && st.do_value!=='') ? `${esc(st.do_value)} <small>mg/L</small>` : '<small>—</small>';
+    doBlock = `<div class="pp-row"><span>ค่า DO ล่าสุด</span><b class="pp-do">${doVal}</b></div>`
+            + (st.do_updated ? `<div class="pp-row"><span>อัปเดตเมื่อ</span><b>${esc(st.do_updated)}</b></div>` : '');
+  }
+  const rows=[];
   if(st.install_date)  rows.push(`<div class="pp-row"><span>วันที่ติดตั้ง</span><b>${esc(st.install_date)}</b></div>`);
   if(st.contact)       rows.push(`<div class="pp-row"><span>ติดต่อ</span><b>${esc(st.contact)}</b></div>`);
   if(st.note)          rows.push(`<div class="pp-row"><span>หมายเหตุ</span><b>${esc(st.note)}</b></div>`);
@@ -169,7 +189,7 @@ function buildPopup(st){
     <div class="pp-name">${esc(st.name||'(ไม่มีชื่อ)')}</div>
     <div class="pp-loc">📍 ${esc(st.location||'-')}</div>
     <span class="badge ${online?'online':'offline'}">${online?'● ออนไลน์':'● ออฟไลน์'}</span>
-    ${rows.join('')}${dist}
+    ${doBlock}${rows.join('')}${dist}
     <div class="pp-actions">
       <button class="pp-btn pp-nav" onclick="DO.nav('${st.id}')">🧭 นำทาง</button>
       <button class="pp-btn pp-edit" onclick="DO.edit('${st.id}')" title="แก้ไข">✏️</button>
@@ -178,8 +198,10 @@ function buildPopup(st){
 function renderMarkers(){
   markerLayer.clearLayers();
   for(const k in markersById) delete markersById[k];
-  STATIONS.forEach(st=>{
+  visibleStations().forEach(st=>{
     const m=L.marker([st.lat,st.lng],{icon:pinIcon(st._status)}).bindPopup(()=>buildPopup(st));
+    m.bindTooltip(esc(st.name||'(ไม่มีชื่อ)'),{permanent:true,direction:'top',offset:[0,-40],className:'pin-label'});
+    if(st.sheet) m.on('popupopen',()=>loadLive(st));
     markerLayer.addLayer(m); markersById[st.id]=m;
   });
 }
@@ -215,8 +237,11 @@ function updateStats(){
 }
 function focusStation(id){
   const st=STATIONS.find(s=>s.id===id); if(!st) return;
-  map.setView([st.lat,st.lng], Math.max(map.getZoom(),14),{animate:true});
-  markersById[id]?.openPopup();
+  const z=Math.max(map.getZoom(),14);
+  // ดัน center ขึ้น ~100px เพื่อให้หมุดอยู่ "ค่อนกลาง" + เหลือที่ด้านบนให้ popup ที่เด้งขึ้น เห็นเต็ม
+  const center=map.unproject(map.project([st.lat,st.lng],z).subtract([0,100]),z);
+  map.setView(center,z,{animate:true});
+  setTimeout(()=>markersById[id]?.openPopup(), 320);
   document.querySelectorAll('.station').forEach(el=>el.classList.toggle('active', el.dataset.id===id));
 }
 
@@ -284,11 +309,12 @@ $('#routeCancel').addEventListener('click',clearRoute);
    เพิ่ม / แก้ไข หมุด
    ============================================================ */
 const overlay=$('#overlay');
-const FIELDS=['name','location','lat','lng','status','do_value','do_updated','contact','install_date','photo','note'];
+const FIELDS=['name','location','lat','lng','status','do_value','do_updated','contact','install_date','photo','note','sheet'];
 function openModal(st){
   $('#modalTitle').textContent = st ? 'แก้ไขหมุด' : 'เพิ่มหมุดใหม่';
   $('#f_id').value = st?.id || '';
   FIELDS.forEach(f=>{ const el=$('#f_'+f); if(el) el.value = st?.[f] ?? ''; });
+  $('#f_coord').value = (st && st.lat!=null && st.lng!=null) ? `${st.lat}, ${st.lng}` : '';
   $('#btnDelete').style.display = st ? 'block':'none';
   overlay.classList.add('show');
 }
@@ -296,12 +322,12 @@ function closeModal(){ overlay.classList.remove('show'); }
 function openEdit(id){ openModal(STATIONS.find(s=>s.id===id)); }
 
 $('#btnSave').addEventListener('click',()=>{
-  const lat=toNum($('#f_lat').value), lng=toNum($('#f_lng').value);
   if(!$('#f_name').value.trim()){ alert('กรุณาใส่ชื่อฟาร์ม/จุดติดตั้ง'); return; }
-  if(lat==null||lng==null){ alert('กรุณาใส่พิกัด lat/lng (กดปักจุดบนแผนที่ หรือใช้ GPS ก็ได้)'); return; }
+  const ll=parseLatLng($('#f_coord').value);
+  if(!ll){ alert('พิกัดไม่ถูกต้อง — วางแบบ "13.5421, 100.9912" หรือกดปักจุด/ใช้ GPS'); return; }
   const rec={id:$('#f_id').value||undefined};
-  FIELDS.forEach(f=>{ rec[f]=$('#f_'+f).value.trim(); });
-  rec.lat=lat; rec.lng=lng;
+  FIELDS.forEach(f=>{ const el=$('#f_'+f); if(el) rec[f]=el.value.trim(); });
+  rec.lat=ll.lat; rec.lng=ll.lng;
   store.save(rec); closeModal();
 });
 $('#btnDelete').addEventListener('click',()=>{
@@ -315,7 +341,7 @@ $('#useGps').addEventListener('click',()=>{
   if(!navigator.geolocation){ alert('ไม่รองรับ GPS'); return; }
   $('#useGps').textContent='⏳...';
   navigator.geolocation.getCurrentPosition(p=>{
-    $('#f_lat').value=p.coords.latitude.toFixed(6); $('#f_lng').value=p.coords.longitude.toFixed(6); $('#useGps').textContent='📍 ใช้ GPS ตอนนี้';
+    $('#f_coord').value=p.coords.latitude.toFixed(6)+', '+p.coords.longitude.toFixed(6); $('#useGps').textContent='📍 ใช้ GPS ตอนนี้';
   },e=>{ alert('หาตำแหน่งไม่ได้: '+e.message); $('#useGps').textContent='📍 ใช้ GPS ตอนนี้'; },{enableHighAccuracy:true,timeout:10000});
 });
 
@@ -337,8 +363,8 @@ function enterPickMode(){
   $('#pickBar').style.display='flex';
   $('#placeSearch').value=''; hideResults();
   pickCoord=null; if(placeMarker){ map.removeLayer(placeMarker); placeMarker=null; }
-  const lat=toNum($('#f_lat').value), lng=toNum($('#f_lng').value);
-  if(lat!=null && lng!=null){ setPlaceMarker([lat,lng], false); map.setView([lat,lng], Math.max(map.getZoom(),15)); }
+  const ll=parseLatLng($('#f_coord').value);
+  if(ll){ setPlaceMarker([ll.lat,ll.lng], false); map.setView([ll.lat,ll.lng], Math.max(map.getZoom(),15)); }
   setTimeout(()=>map.invalidateSize(),60);
 }
 function exitPickMode(){
@@ -348,8 +374,7 @@ function exitPickMode(){
 $('#pickMap').addEventListener('click', enterPickMode);
 $('#pickConfirm').addEventListener('click',()=>{
   if(!pickCoord){ alert('ยังไม่ได้เลือกตำแหน่ง — แตะบนแผนที่ หรือค้นหาสถานที่ก่อนครับ'); return; }
-  $('#f_lat').value=pickCoord.lat.toFixed(6);
-  $('#f_lng').value=pickCoord.lng.toFixed(6);
+  $('#f_coord').value=pickCoord.lat.toFixed(6)+', '+pickCoord.lng.toFixed(6);
   exitPickMode(); overlay.classList.add('show');
 });
 $('#pickCancel').addEventListener('click',()=>{ exitPickMode(); overlay.classList.add('show'); });
@@ -392,17 +417,95 @@ placeResults.addEventListener('click',e=>{
    เชื่อมปุ่ม/อีเวนต์
    ============================================================ */
 $('#list').addEventListener('click',e=>{ const row=e.target.closest('.station'); if(row) focusStation(row.dataset.id); });
-$('#search').addEventListener('input',e=>{ searchText=e.target.value.trim().toLowerCase(); renderList(); });
+$('#search').addEventListener('input',e=>{ searchText=e.target.value.trim().toLowerCase(); renderMarkers(); renderList(); });
 document.querySelectorAll('.filters button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.filters button').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active'); activeFilter=b.dataset.f; renderList();
+  b.classList.add('active'); activeFilter=b.dataset.f; renderMarkers(); renderList(); fitVisible();
 }));
 $('#btnLoc').addEventListener('click',()=>locateMe());
 $('#btnAdd').addEventListener('click',()=>openModal(null));
 $('#fabAdd').addEventListener('click',()=>openModal(null));
 
+/* ============================================================
+   📊 ดึงค่าล่าสุดจาก Google Sheet ของแต่ละบ่อ (ตอนกดหมุด)
+   ============================================================ */
+function extractSheetId(s){
+  if(!s) return '';
+  const m=String(s).match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : String(s).trim().replace(/\s+/g,'');
+}
+function extractGid(s){ const m=String(s||'').match(/[?#&]gid=(\d+)/); return m ? m[1] : ''; }
+const gvizCsvUrl  =(id,gid)=>`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`+(gid?`&gid=${gid}`:'');
+const exportCsvUrl=(id,gid)=>`https://docs.google.com/spreadsheets/d/${id}/export?format=csv`+(gid?`&gid=${gid}`:'');
+
+function parseCSV(text){
+  const rows=[]; let row=[], cur='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else {
+      if(c==='"') q=true;
+      else if(c===','){ row.push(cur); cur=''; }
+      else if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+      else if(c!=='\r') cur+=c;
+    }
+  }
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+
+function loadLiveById(id){ const st=STATIONS.find(s=>s.id===id); if(st) loadLive(st); }
+
+async function loadLive(st){
+  const box=document.getElementById('live-'+st.id);
+  if(!box) return;
+  const id=extractSheetId(st.sheet);
+  const gid=extractGid(st.sheet);
+  if(!id){ box.innerHTML='<div class="pp-live-err">ลิงก์ Sheet ไม่ถูกต้อง</div>'; return; }
+  box.innerHTML='<div class="pp-live-load">⏳ กำลังดึงค่าล่าสุดจาก Sheet...</div>';
+  // ลองหลายแท็บ: gid (ถ้าระบุ) → แท็บแรก → แท็บ "DataLog" (ตามระบบ DoRev) — ใช้อันแรกที่มีข้อมูล
+  const urls=[];
+  if(gid) urls.push(gvizCsvUrl(id,gid));
+  urls.push(gvizCsvUrl(id));
+  urls.push(gvizCsvUrl(id)+'&sheet=DataLog');
+  let rows=null, dlUrl=(gid?exportCsvUrl(id,gid):exportCsvUrl(id));
+  for(const url of urls){
+    try{
+      const text=await fetch(url,{cache:'no-store'}).then(r=>r.ok?r.text():'');
+      const rr=parseCSV(text).filter(r=>r.length>1 && r.some(c=>String(c).trim()!==''));
+      if(rr.length>=2){ rows=rr; dlUrl=url; break; }
+    }catch(e){}
+  }
+  if(!rows){
+    box.innerHTML='<div class="pp-live-err">อ่าน Sheet ไม่ได้ หรือยังไม่มีข้อมูล — ตรวจว่าแชร์ "ผู้ที่มีลิงก์ดูได้" · '
+      +'<a href="'+(gid?exportCsvUrl(id,gid):exportCsvUrl(id))+'" target="_blank" rel="noopener">เปิด CSV</a></div>';
+    return;
+  }
+  const header=rows[0].map(h=>h.trim()), data=rows.slice(1);
+  let tCol=header.findIndex(h=>/วันที่|เวลา|date|time/i.test(h)); if(tCol<0) tCol=0;
+  const doCol=header.findIndex(h=>/DO/i.test(h));
+  // ค่าล่าสุด = แถวที่เวลามากสุด (กันกรณีเรียงเก่า→ใหม่ หรือ ใหม่→เก่า)
+  let latest=data[0], best=-Infinity;
+  for(const r of data){ const ts=Date.parse(String(r[tCol]||'').replace(' ','T')); if(!isNaN(ts)&&ts>best){best=ts;latest=r;} }
+  let grid='';
+  header.forEach((h,i)=>{
+    if(i===tCol || i===doCol) return;
+    const v=String(latest[i]||'').trim(); if(!v) return;
+    grid+=`<div><span>${esc(h)}</span><b>${esc(v)}</b></div>`;
+  });
+  box.innerHTML=
+    `<div class="pp-live-head">📊 ค่าล่าสุดจาก Google Sheet</div>
+     <div class="pp-live-do">DO <b>${esc(doCol>=0?latest[doCol]:'—')}</b> <small>mg/L</small></div>
+     <div class="pp-live-time">🕒 ${esc(latest[tCol]||'')}</div>
+     <div class="pp-live-grid">${grid}</div>
+     <div class="pp-live-actions">
+       <button class="pp-live-refresh" onclick="DO.live('${st.id}')">🔄 รีเฟรช</button>
+       <a class="pp-live-dl" href="${dlUrl}" target="_blank" rel="noopener">⬇️ ดาวน์โหลด CSV</a>
+     </div>`;
+}
+
 // เปิดให้ปุ่มใน popup/list เรียกได้
-window.DO = { nav:navigateTo, edit:openEdit, focus:focusStation };
+window.DO = { nav:navigateTo, edit:openEdit, focus:focusStation, live:loadLiveById };
 
 /* ============================================================
    Service Worker (โหมดออฟไลน์) + เริ่มทำงาน
