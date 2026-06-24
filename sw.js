@@ -1,5 +1,5 @@
 /* Service Worker — แคชแอปไว้ให้เปิดออฟไลน์ + แคชภาพแผนที่โซนที่เคยดู */
-const CACHE = 'do-monitor-v13';
+const CACHE = 'do-monitor-v15';
 const SHELL = [
   './', './index.html', './app.js', './config.js', './manifest.json', './icon.svg'
 ];

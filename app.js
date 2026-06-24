@@ -488,6 +488,32 @@ function parseCSV(text){
 
 function loadLiveById(id){ const st=STATIONS.find(s=>s.id===id); if(st) loadLive(st); }
 
+// โหลด CSV แบบเติม BOM (UTF-8) เพื่อให้ Excel อ่านภาษาไทยถูกต้อง ไม่เพี้ยน
+async function downloadCsv(id){
+  const st=STATIONS.find(s=>s.id===id); if(!st) return;
+  const sid=extractSheetId(st.sheet), gid=extractGid(st.sheet);
+  if(!sid) return;
+  // ใช้ gviz (ตอบ 200 + CORS ตรงๆ) ไม่ใช้ export (เด้ง 307 → fetch พัง)
+  const url=gid?gvizCsvUrl(sid,gid):gvizCsvUrl(sid);
+  const btn=document.querySelector('#live-'+id+' .pp-live-dl');
+  const old=btn?btn.textContent:''; if(btn){ btn.textContent='⏳ กำลังโหลด...'; }
+  try{
+    const text=await fetch(url,{cache:'no-store'}).then(r=>{ if(!r.ok) throw 0; return r.text(); });
+    // ﻿ = BOM บอก Excel ว่าไฟล์นี้เป็น UTF-8 → ภาษาไทยไม่เพี้ยน
+    const blob=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8;'});
+    const a=document.createElement('a');
+    const fname=(st.name?String(st.name).replace(/[\\/:*?"<>|]/g,'_'):'DO')+'_'+(new Date().toISOString().slice(0,10))+'.csv';
+    a.href=URL.createObjectURL(blob); a.download=fname;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    if(btn) btn.textContent=old;
+  }catch(e){
+    // ดึงผ่าน fetch ไม่ได้ (เช่น CORS) → เปิดลิงก์ตรงแทน
+    if(btn) btn.textContent=old;
+    window.open(url,'_blank','noopener');
+  }
+}
+
 // ดึงแถวล่าสุดจาก Sheet (ลองหลายแท็บ: gid → DataLog → แท็บแรก) คืน {header,latest,tCol,doCol,dlUrl}
 async function fetchLatest(st){
   const id=extractSheetId(st.sheet), gid=extractGid(st.sheet);
@@ -543,7 +569,7 @@ async function loadLive(st){
      <div class="pp-live-grid">${grid}</div>
      <div class="pp-live-actions">
        <button class="pp-live-refresh" onclick="DO.live('${st.id}')">🔄 รีเฟรช</button>
-       <a class="pp-live-dl" href="${r.dlUrl}" target="_blank" rel="noopener">⬇️ ดาวน์โหลด CSV</a>
+       <button class="pp-live-dl" onclick="DO.dl('${st.id}')">⬇️ ดาวน์โหลด CSV</button>
      </div>`;
 }
 
@@ -560,7 +586,7 @@ async function refreshStatuses(){
 }
 
 // เปิดให้ปุ่มใน popup/list เรียกได้
-window.DO = { nav:navigateTo, edit:openEdit, focus:focusStation, live:loadLiveById };
+window.DO = { nav:navigateTo, edit:openEdit, focus:focusStation, live:loadLiveById, dl:downloadCsv };
 
 /* ============================================================
    Service Worker (โหมดออฟไลน์) + เริ่มทำงาน
